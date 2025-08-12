@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Productivity Tracker</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#ffffff">
+  <style>
+    :root{
+      --bg:#fff; --card:#f6f7f9; --text:#111; --muted:#6b7280; --accent:#064e3b;
+    }
+    [data-theme="dark"]{
+      --bg:#0b1220; --card:#09121b; --text:#e6eef8; --muted:#94a3b8; --accent:#7c3aed;
+    }
+    html,body{height:100%;margin:0;font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
+    .wrap{max-width:540px;margin:28px auto;padding:18px}
+    header{display:flex;align-items:center;gap:12px}
+    h1{font-size:20px;margin:0}
+    small{color:var(--muted)}
+    .card{background:var(--card);padding:12px;border-radius:10px;margin-top:14px;box-shadow:0 6px 18px rgba(2,6,23,0.06)}
+    .row{display:flex;gap:8px}
+    input,select{padding:10px;border-radius:8px;border:1px solid rgba(0,0,0,0.06);background:transparent;outline:none;width:100%}
+    button{background:var(--accent);color:white;border:0;padding:10px 12px;border-radius:8px;cursor:pointer}
+    .list{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+    .item{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;background:rgba(0,0,0,0.02)}
+    .muted{color:var(--muted);font-size:13px}
+    .theme-toggle{margin-left:auto;background:transparent;border:0;cursor:pointer;font-size:18px}
+    .tiny{font-size:12px;color:var(--muted)}
+    @media (max-width:480px){ .wrap{margin:12px;padding:12px} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>Productivity Tracker</h1>
+        <div class="tiny">Track exercises, reading, and small wins</div>
+      </div>
+      <button class="theme-toggle" id="themeBtn" aria-label="Toggle theme">🌓</button>
+    </header>
+
+    <div class="card" aria-live="polite">
+      <form id="form" onsubmit="return false;">
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <input id="name" placeholder="Activity (e.g., Reading)" required>
+          <input id="minutes" type="number" min="1" placeholder="mins" style="width:92px">
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="date" type="date" style="flex:1">
+          <button id="addBtn">Add</button>
+        </div>
+        <div class="tiny" style="margin-top:8px">Saved locally on this device • works offline</div>
+      </form>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div><strong>Today</strong><div class="muted tiny" id="todayDate"></div></div>
+        <div class="muted">Total: <span id="totalMins">0</span>m</div>
+      </div>
+      <div class="list" id="list"></div>
+    </div>
+
+    <div style="margin-top:14px" class="tiny muted">Tip: After installing, open the app from your home screen for the best experience.</div>
+  </div>
+
+  <script>
+    // basic utilities
+    const $ = sel => document.querySelector(sel);
+    const toISO = d => { const dt = new Date(d); const y = dt.getFullYear(); const m = String(dt.getMonth()+1).padStart(2,'0'); const day = String(dt.getDate()).padStart(2,'0'); return `${y}-${m}-${day}`; };
+    const LS_KEY = 'pwa-tracker.activities.v1';
+    let activities = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+
+    // init date to today
+    const today = toISO(new Date());
+    $('#date').value = today;
+    $('#todayDate').textContent = new Date().toLocaleDateString();
+
+    // theme
+    const themeBtn = $('#themeBtn');
+    const savedTheme = localStorage.getItem('pwa-theme');
+    if(savedTheme === 'dark'){ document.documentElement.setAttribute('data-theme','dark'); }
+    themeBtn.addEventListener('click', ()=>{
+      const cur = document.documentElement.getAttribute('data-theme');
+      if(cur==='dark'){ document.documentElement.removeAttribute('data-theme'); localStorage.setItem('pwa-theme','light'); } else { document.documentElement.setAttribute('data-theme','dark'); localStorage.setItem('pwa-theme','dark'); }
+    });
+
+    // render
+    function save(){ localStorage.setItem(LS_KEY, JSON.stringify(activities)); }
+    function render(){
+      const sel = $('#date').value;
+      const list = activities.filter(a => a.date === sel).sort((a,b)=>b.added - a.added);
+      const wrap = $('#list'); wrap.innerHTML='';
+      let total = 0;
+      if(list.length===0){ wrap.innerHTML = '<div class="muted tiny" style="padding:8px">No activities</div>'; }
+      for(const it of list){
+        total += Number(it.minutes||0);
+        const div = document.createElement('div'); div.className='item';
+        div.innerHTML = `<div><div style="font-weight:600">${escapeHtml(it.name)}</div><div class="muted tiny">${it.minutes||0} min</div></div><div style="display:flex;gap:6px"><button data-id="${it.id}" class="del tiny">Delete</button></div>`;
+        wrap.appendChild(div);
+      }
+      $('#totalMins').textContent = total;
+    }
+
+    // escape
+    function escapeHtml(s){ return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
+
+    // add
+    $('#addBtn').addEventListener('click', ()=>{
+      const name = $('#name').value.trim(); const minutes = Number($('#minutes').value)||0; const date = $('#date').value || today;
+      if(!name) return $('#name').focus();
+      const item = { id: 'id'+Date.now()+Math.floor(Math.random()*999), name, minutes, date, added: Date.now() };
+      activities.push(item); save(); render(); $('#name').value=''; $('#minutes').value=''; $('#name').focus();
+      // tiny visual
+      const n = document.createElement('div'); n.textContent='Saved'; n.style.position='fixed'; n.style.right='18px'; n.style.bottom='18px'; n.style.padding='10px 12px'; n.style.borderRadius='10px'; n.style.background='var(--accent)'; n.style.color='white'; n.style.fontWeight='700'; document.body.appendChild(n);
+      setTimeout(()=>n.remove(),900);
+    });
+
+    // delete
+    document.addEventListener('click', (e)=>{
+      const btn = e.target.closest('.del'); if(!btn) return;
+      const id = btn.dataset.id; activities = activities.filter(a=>a.id!==id); save(); render();
+    });
+
+    // date change
+    $('#date').addEventListener('change', ()=> render());
+
+    // initial render
+    render();
+
+    // service worker registration
+    if('serviceWorker' in navigator){ navigator.serviceWorker.register('service-worker.js').catch(()=>{}); }
+  </script>
+</body>
+</html>
